@@ -85,8 +85,8 @@ def confirm_purchase():
         cursor = conn.cursor()
 
         # Insert the purchase record
-        cursor.execute("INSERT INTO purchases (customer_id, purchase_amount, purchase_date) VALUES (%s, %s, %s)", 
-                       (customer_id, payable_amount, datetime.now()))
+        cursor.execute("INSERT INTO purchases (customer_id, purchase_amount, Redeem_Points, Get_Points, purchase_date) VALUES (%s, %s, %s, %s, %s)", 
+                       (customer_id, payable_amount, redeem_points, points_earned, datetime.now()))
 
         cursor.execute("UPDATE customers SET points = %s WHERE id = %s", (total_points, customer_id))
         conn.commit()
@@ -196,7 +196,7 @@ def search_sell_summary():
 
     conn = create_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT customer_id, purchase_amount, purchase_date FROM purchases WHERE purchase_date >= %s AND purchase_date < %s",
+    cursor.execute("SELECT customer_id, purchase_amount, Get_Points, Redeem_Points, purchase_date FROM purchases WHERE purchase_date >= %s AND purchase_date < %s",
                    (from_date, to_date))
     results = cursor.fetchall()
     cursor.close()
@@ -219,7 +219,7 @@ def search_customer_summary():
 
     conn = create_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT c.name, p.purchase_amount, c.points, p.purchase_date FROM customers c "
+    cursor.execute("SELECT c.name, p.purchase_amount, p.Get_Points, p.Redeem_Points, c.points, p.purchase_date FROM customers c "
                    "JOIN purchases p ON c.id = p.customer_id WHERE c.phone_number = %s", (phone_number,))
     results = cursor.fetchall()
     cursor.close()
@@ -361,15 +361,20 @@ def main():
     print_button.pack(pady=10)
 
     # Create the table
-    sell_result_table = ttk.Treeview(sell_summary_frame, columns=("Customer ID", "Purchase Amount", "Purchase Date"), show="headings", height=15)
+    style = ttk.Style()
+    style.configure("sell.Treeview.Heading",background = "lightgreen", foreground ="grey", relief="flat")
+    Column_name = ("Customer ID", "Purchase Amount", "Got Points", "Redeem Points", "Purchase Date")
+    sell_result_table = ttk.Treeview(sell_summary_frame, style="sell.Treeview", columns= Column_name, show="headings", height=20)
     sell_result_table.heading("Customer ID", text="Customer ID")
     sell_result_table.heading("Purchase Amount", text="Purchase Amount")
+    sell_result_table.heading("Got Points", text="Got Points")
+    sell_result_table.heading("Redeem Points", text="Redeem Points")
     sell_result_table.heading("Purchase Date", text="Purchase Date")
     # Align the content of each column in the center
-    for col in ("Customer ID", "Purchase Amount", "Purchase Date"):
+    for col in ("Customer ID", "Purchase Amount", "Got Points", "Redeem Points", "Purchase Date"):
         sell_result_table.column(col, anchor="center")
 
-    sell_result_table.pack(pady=10)
+    sell_result_table.pack(fill=tkinter.BOTH, expand=True, pady=10)
 
     # Back button in the top-left corner of the window
     back_button = ctk.CTkButton(customer_summary_frame, text="Back", command=switch_to_main)
@@ -400,12 +405,14 @@ def main():
     print_button.pack(pady=10)
 
     # Create the customer summary table (already aligned center)
-    customer_result_table = ttk.Treeview(customer_summary_frame, columns=("Name", "Purchase Amount", "Points", "Purchase Date"), show="headings",height=20)
+    customer_result_table = ttk.Treeview(customer_summary_frame, columns=("Name", "Purchase Amount", "Get_Points", "Redeem_Points", "Points", "Purchase Date"), show="headings",height=20)
 
     # Set the heading text for each column
     customer_result_table.heading("Name", text="Name")
     customer_result_table.heading("Purchase Amount", text="Purchase Amount")
-    customer_result_table.heading("Points", text="Points")
+    customer_result_table.heading("Get_Points", text="Get Points")
+    customer_result_table.heading("Redeem_Points", text="Redeem Points")
+    customer_result_table.heading("Points", text="Total Points")
     customer_result_table.heading("Purchase Date", text="Purchase Date")
 
     # Pack the table
@@ -413,7 +420,7 @@ def main():
 
 
     # Align the content of each column in the center
-    for col in ("Name", "Purchase Amount", "Points", "Purchase Date"):
+    for col in ("Name", "Purchase Amount", "Get_Points", "Redeem_Points", "Points", "Purchase Date"):
         customer_result_table.column(col, anchor="center")
 
     # Start with the main frame
