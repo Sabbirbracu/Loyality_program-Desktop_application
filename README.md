@@ -59,6 +59,8 @@ CREATE TABLE purchases (
     customer_id INT,
     purchase_amount FLOAT,
     purchase_date DATETIME,
+    Redeem_Points int,
+    Get_Points int,
     FOREIGN KEY (customer_id) REFERENCES customers(id)
 );
 ```
