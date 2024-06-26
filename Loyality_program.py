@@ -34,17 +34,30 @@ def confirm_purchase():
     conn = create_connection()
     cursor = conn.cursor()
 
-    phone = phone_entry.get()
-    purchase_amount = purchase_entry.get()
-    redeem_points = redeem_points_entry.get()
-    
-    if phone and purchase_amount:
+    phone = phone_entry.get().strip()
+    purchase_amount = purchase_entry.get().strip()
+    redeem_points = redeem_points_entry.get().strip()
+
+    if phone:
+        customer_data = load_points(phone)
+        if customer_data is None:
+            messagebox.showerror("Account Error", "Oops! There is no account associated with this phone number.")
+            return
+        
+        customer_id, current_points = customer_data
+
+        # Show warning if purchase amount is not provided
+        if not purchase_amount:
+            update_summary_label(phone, 0, 0, 0, current_points, 0)
+            return
+
         try:
             purchase_amount = float(purchase_amount)
         except ValueError:
             messagebox.showerror("Input Error", "Please enter a valid purchase amount.")
             return
         
+        # Handle redeem points input
         if redeem_points:
             try:
                 redeem_points = float(redeem_points)
@@ -54,39 +67,27 @@ def confirm_purchase():
         else:
             redeem_points = 0
 
-        customer_data = load_points(phone)
-        if customer_data is None:
-            messagebox.showerror("Account Error", "Oops! There is no account associated with this phone number.")
-            return
-
-        customer_id, current_points = customer_data
-
         if redeem_points > current_points or (int(redeem_points) > 0 and int(redeem_points) < 100):
             messagebox.showerror("Points Error", "You don't have enough points to redeem.")
             return
         
-        cursor.execute("SELECT SUM(purchase_amount) FROM purchases WHERE customer_id = (SELECT id FROM customers WHERE phone_number = %s)", (phone,))
+        cursor.execute("SELECT SUM(purchase_amount) FROM purchases WHERE customer_id = %s", (customer_id,))
         total_purchase_amount = cursor.fetchone()[0]
-        
+
         if total_purchase_amount is None:
             total_purchase_amount = 0
         
         if total_purchase_amount <= 10000:
             points_earned = purchase_amount * 0.01
-            total_points = current_points - redeem_points + points_earned
-            payable_amount = purchase_amount - redeem_points
         else:
             points_earned = purchase_amount * 0.02
-            total_points = current_points - redeem_points + points_earned
-            payable_amount = purchase_amount - redeem_points
+        
+        total_points = current_points - redeem_points + points_earned
+        payable_amount = purchase_amount - redeem_points
         
         # Update the database with new points
-        conn = create_connection()
-        cursor = conn.cursor()
-
-        # Insert the purchase record
-        cursor.execute("INSERT INTO purchases (customer_id, purchase_amount, purchase_date) VALUES (%s, %s, %s)", 
-                       (customer_id, payable_amount, datetime.now()))
+        cursor.execute("INSERT INTO purchases (customer_id, purchase_amount, Redeem_Points, Get_Points, purchase_date) VALUES (%s, %s, %s, %s, %s)", 
+                       (customer_id, payable_amount, redeem_points, points_earned, datetime.now()))
 
         cursor.execute("UPDATE customers SET points = %s WHERE id = %s", (total_points, customer_id))
         conn.commit()
@@ -98,7 +99,8 @@ def confirm_purchase():
 
         # clear_entries()  # Clear the input fields after showing the messagebox
     else:
-        messagebox.showwarning("Input Error", "Please enter both phone number and purchase amount.")
+        messagebox.showwarning("Input Error", "Please enter the phone number.")
+
 
 
 # Function to update the summary label
@@ -139,8 +141,15 @@ def clear_entries():
     purchase_entry.delete(0, ctk.END)
     redeem_points_entry.delete(0, ctk.END)
 
+# Function to clear signup entries
+def clear_signup_entries():
+    signup_phone_entry.delete(0, ctk.END)
+    signup_name_entry.delete(0, ctk.END)
+
+
 # Function to handle account creation
 def create_account():
+    clear_entries()
     phone = signup_phone_entry.get()
     name = signup_name_entry.get()
     if phone and name:
@@ -159,21 +168,33 @@ def create_account():
         cursor.close()
         conn.close()
         messagebox.showinfo("Account Created", "Account successfully created.")
+        clear_signup_entries()  # Clear the signup entries after account creation
         switch_to_main(phone)
     else:
         messagebox.showwarning("Input Error", "Please enter both phone number and name.")
 
-# Function to switch to sign up interface
 def switch_to_signup():
-    hide_all_frames()
-    signup_frame.pack(fill="both", expand=True)
+    """Switch to the signup frame."""
+    signup_frame.pack(pady=20, padx=20)
+    main_frame.pack_forget()
+    sell_summary_frame.pack_forget()
+    customer_summary_frame.pack_forget()
+    bind_enter_key(create_account)  # Bind Enter key to create_account
 
-# Function to switch back to main interface
+
+def bind_enter_key(func):
+    """Bind the Enter key to the given function."""
+    root.bind('<Return>', lambda event: func())
+
 def switch_to_main(phone=None):
-    hide_all_frames()
+    """Switch to the main frame."""
     main_frame.pack(fill="both", expand=True)
     if phone:
         phone_entry.insert(0, phone)
+    signup_frame.pack_forget()
+    sell_summary_frame.pack_forget()
+    customer_summary_frame.pack_forget()
+    bind_enter_key(confirm_purchase)  # Bind Enter key to confirm_purchase
 
 # Function to handle the close button click
 def close_summary():
@@ -181,10 +202,13 @@ def close_summary():
     clear_entries()
     close_button.pack_forget()
 
-# Function to switch to the sell summary interface
 def switch_to_sell_summary():
-    hide_all_frames()
-    sell_summary_frame.pack(fill="both", expand=True)
+    """Switch to the sell summary frame."""
+    sell_summary_frame.pack(pady=20, padx=20)
+    main_frame.pack_forget()
+    signup_frame.pack_forget()
+    customer_summary_frame.pack_forget()
+    bind_enter_key(search_sell_summary)  # Bind Enter key to search_sell_summary
 
 # Function to search sell summary between two dates
 def search_sell_summary():
@@ -196,7 +220,7 @@ def search_sell_summary():
 
     conn = create_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT customer_id, purchase_amount, purchase_date FROM purchases WHERE purchase_date >= %s AND purchase_date < %s",
+    cursor.execute("SELECT customer_id, purchase_amount, Get_Points, Redeem_Points, purchase_date FROM purchases WHERE purchase_date >= %s AND purchase_date < %s",
                    (from_date, to_date))
     results = cursor.fetchall()
     cursor.close()
@@ -208,10 +232,13 @@ def search_sell_summary():
     for row in results:
         sell_result_table.insert("", "end", values=row)
 
-# Function to switch to the customer summary interface
 def switch_to_customer_summary():
-    hide_all_frames()
-    customer_summary_frame.pack(fill="both", expand=True)
+    """Switch to the customer summary frame."""
+    customer_summary_frame.pack(pady=20, padx=20)
+    main_frame.pack_forget()
+    signup_frame.pack_forget()
+    sell_summary_frame.pack_forget()
+    bind_enter_key(search_customer_summary)  # Bind Enter key to search_customer_summary
 
 # Function to search customer summary by phone number
 def search_customer_summary():
@@ -219,7 +246,7 @@ def search_customer_summary():
 
     conn = create_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT c.name, p.purchase_amount, c.points, p.purchase_date FROM customers c "
+    cursor.execute("SELECT c.name, p.purchase_amount, p.Get_Points, p.Redeem_Points, c.points, p.purchase_date FROM customers c "
                    "JOIN purchases p ON c.id = p.customer_id WHERE c.phone_number = %s", (phone_number,))
     results = cursor.fetchall()
     cursor.close()
@@ -230,6 +257,7 @@ def search_customer_summary():
 
     for row in results:
         customer_result_table.insert("", "end", values=row)
+
 
 def hide_all_frames():
     for frame in (main_frame, signup_frame, sell_summary_frame, customer_summary_frame):
@@ -250,7 +278,6 @@ def main():
     global root, phone_entry, purchase_entry, redeem_points_entry, summary_label, close_button
     global signup_phone_entry, signup_name_entry, from_date_entry, to_date_entry, sell_result_table
     global customer_phone_entry, customer_result_table, main_frame, signup_frame, sell_summary_frame, customer_summary_frame
-
     root = ctk.CTk()
     root.title("Customer Loyalty Program")
     resize_window(size="3/4")  # Default window size to 3/4
@@ -289,7 +316,7 @@ def main():
     confirm_button = ctk.CTkButton(main_frame, text="Confirm", command=confirm_purchase)
     confirm_button.pack(pady=10)
 
-    summary_label = ctk.CTkLabel(main_frame, text="",wraplength=400)
+    summary_label = ctk.CTkLabel(main_frame, text="", wraplength=400)
     close_button = ctk.CTkButton(main_frame, text="Close", command=close_summary)
 
     # Buttons for Sell Summary and Customer Summary
@@ -305,7 +332,6 @@ def main():
     # Pack the frame containing the buttons
     summary_buttons_frame.pack()
 
-
     switch_to_signup_button = ctk.CTkButton(root, text="Create Account", command=switch_to_signup)
     switch_to_signup_button.pack(pady=5, padx=10, anchor="ne")
     # Sign up frame widgets
@@ -314,12 +340,12 @@ def main():
 
     signup_phone_label = ctk.CTkLabel(signup_frame, text="Phone Number:")
     signup_phone_label.pack(pady=5)
-    signup_phone_entry = ctk.CTkEntry(signup_frame,placeholder_text="Enter Customer Phone number")
+    signup_phone_entry = ctk.CTkEntry(signup_frame, placeholder_text="Enter Customer Phone number")
     signup_phone_entry.pack(pady=5)
 
     signup_name_label = ctk.CTkLabel(signup_frame, text="Name:")
     signup_name_label.pack(pady=5)
-    signup_name_entry = ctk.CTkEntry(signup_frame,placeholder_text="Enter Customer Name")
+    signup_name_entry = ctk.CTkEntry(signup_frame, placeholder_text="Enter Customer Name")
     signup_name_entry.pack(pady=5)
 
     create_account_button = ctk.CTkButton(signup_frame, text="Create Account", command=create_account)
@@ -333,7 +359,7 @@ def main():
     back_button.pack(side="top", anchor="nw", padx=10, pady=10)
 
     # Sell summary frame widgets
-    sell_summary_label = ctk.CTkLabel(sell_summary_frame, text="The Selling Summary", font=("Helvetica", 26, "bold"),text_color="Light Blue")
+    sell_summary_label = ctk.CTkLabel(sell_summary_frame, text="The Selling Summary", font=("Helvetica", 26, "bold"), text_color="Light Blue")
     sell_summary_label.pack(pady=10)
 
     # Create a new frame within sell_summary_frame for grid management
@@ -352,7 +378,6 @@ def main():
     to_date_entry = ctk.CTkEntry(date_frame)
     to_date_entry.grid(row=1, column=1, pady=5, padx=5)
 
-
     search_button = ctk.CTkButton(sell_summary_frame, text="Search", command=search_sell_summary)
     search_button.pack(pady=10)
 
@@ -360,63 +385,73 @@ def main():
     print_button = ctk.CTkButton(sell_summary_frame, text="Print", command=download_csv)
     print_button.pack(pady=10)
 
-    # Create the table
-    sell_result_table = ttk.Treeview(sell_summary_frame, columns=("Customer ID", "Purchase Amount", "Purchase Date"), show="headings", height=15)
+    # Define styles for the sell table
+    sell_style = ttk.Style()
+    sell_style.configure("sell.Treeview.Heading",
+                         background="lightgreen",
+                         foreground="grey",
+                         relief="flat",
+                         font=("Helvetica", 14, "bold"))  # Increased font size for headings
+    sell_style.configure("sell.Treeview",
+                         font=("Helvetica", 12))  # Increased font size for data rows
+
+    Column_name = ("Customer ID", "Purchase Amount", "Got Points", "Redeem Points", "Purchase Date")
+    sell_result_table = ttk.Treeview(sell_summary_frame, style="sell.Treeview", columns=Column_name, show="headings", height=20)
     sell_result_table.heading("Customer ID", text="Customer ID")
     sell_result_table.heading("Purchase Amount", text="Purchase Amount")
+    sell_result_table.heading("Got Points", text="Got Points")
+    sell_result_table.heading("Redeem Points", text="Redeem Points")
     sell_result_table.heading("Purchase Date", text="Purchase Date")
+
     # Align the content of each column in the center
-    for col in ("Customer ID", "Purchase Amount", "Purchase Date"):
+    for col in Column_name:
         sell_result_table.column(col, anchor="center")
 
-    sell_result_table.pack(pady=10)
+    sell_result_table.pack(fill=tkinter.BOTH, expand=True, pady=10)
 
     # Back button in the top-left corner of the window
     back_button = ctk.CTkButton(customer_summary_frame, text="Back", command=switch_to_main)
     back_button.pack(side="top", anchor="nw", padx=10, pady=10)
 
     # Customer summary frame widgets
-    customer_summary_label = ctk.CTkLabel(customer_summary_frame, text="Customer Summary", font=("Helvetica", 16))
+    customer_summary_label = ctk.CTkLabel(customer_summary_frame, text="Customer Summary", font=("Helvetica", 26, "bold"), text_color="Light Blue")
     customer_summary_label.pack(pady=10)
 
-    # Frame to contain the phone number label, entry, and search button
-    phone_frame = ctk.CTkFrame(customer_summary_frame)
-    phone_frame.pack(pady=10)
+    customer_phone_label = ctk.CTkLabel(customer_summary_frame, text="Phone Number:", font=("Helvetica", 13, "bold"))
+    customer_phone_label.pack(pady=5)
+    customer_phone_entry = ctk.CTkEntry(customer_summary_frame, placeholder_text="Enter Customer Phone number")
+    customer_phone_entry.pack(pady=5)
 
-    # Phone number label
-    customer_phone_label = ctk.CTkLabel(phone_frame, text="Phone Number:")
-    customer_phone_label.pack(side="left")
+    search_customer_button = ctk.CTkButton(customer_summary_frame, text="Search", command=search_customer_summary)
+    search_customer_button.pack(pady=10)
 
-    # Phone number entry
-    customer_phone_entry = ctk.CTkEntry(phone_frame)
-    customer_phone_entry.pack(side="left", padx=5)
 
-    # Search button
-    search_customer_button = ctk.CTkButton(phone_frame, text="Search", command=search_customer_summary)
-    search_customer_button.pack(side="left", padx=5)
+# Define styles for the customer table
+    customer_style = ttk.Style()
+    customer_style.configure("customer.Treeview.Heading",
+                             background="lightgreen",
+                             foreground="grey",
+                             relief="flat",
+                             font=("Helvetica", 14, "bold"))  # Increased font size for headings
+    customer_style.configure("customer.Treeview",
+                             font=("Helvetica", 12))  # Increased font size for data rows
 
-    # Add the "Print" button
-    print_button = ctk.CTkButton(phone_frame, text="Print", command=download_csv_customer_summary)
-    print_button.pack(pady=10)
-
-    # Create the customer summary table (already aligned center)
-    customer_result_table = ttk.Treeview(customer_summary_frame, columns=("Name", "Purchase Amount", "Points", "Purchase Date"), show="headings",height=20)
-
-    # Set the heading text for each column
+    customer_table_columns = ("Name", "Purchase Amount", "Get Points", "Redeem Points", "Total Points", "Purchase Date")
+    customer_result_table = ttk.Treeview(customer_summary_frame, style="customer.Treeview", columns=customer_table_columns, show="headings", height=20)
     customer_result_table.heading("Name", text="Name")
     customer_result_table.heading("Purchase Amount", text="Purchase Amount")
-    customer_result_table.heading("Points", text="Points")
+    customer_result_table.heading("Get Points", text="Get Points")
+    customer_result_table.heading("Redeem Points", text="Redeem Points")
+    customer_result_table.heading("Total Points", text="Total Points")
     customer_result_table.heading("Purchase Date", text="Purchase Date")
 
-    # Pack the table
-    customer_result_table.pack(pady=10)
-
-
     # Align the content of each column in the center
-    for col in ("Name", "Purchase Amount", "Points", "Purchase Date"):
+    for col in customer_table_columns:
         customer_result_table.column(col, anchor="center")
 
-    # Start with the main frame
+    customer_result_table.pack(fill=tkinter.BOTH, expand=True, pady=10)
+
+    # Start with the main frame visible
     switch_to_main()
 
     root.mainloop()
@@ -431,7 +466,7 @@ def download_csv():
             writer = csv.writer(csvfile)
 
             # Write the header row
-            writer.writerow(["Customer ID", "Purchase Amount", "Purchase Date"])
+            writer.writerow(["Customer ID", "Purchase Amount", "Get Points", "Redeem Points", "Purchase Date"])
 
             # Write the data rows
             for row_id in sell_result_table.get_children():
@@ -447,7 +482,7 @@ def download_csv_customer_summary():
     if filename:
         with open(filename, 'w', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(["Name", "Purchase Amount", "Points", "Purchase Date"])  # Write headers
+            writer.writerow(["Name", "Purchase Amount", "Get Points", "Redeem Pints", "Total Points", "Purchase Date"])  # Write headers
 
             # Write customer summary data
             for row in customer_result_table.get_children():
